@@ -7,6 +7,7 @@
 
 import time
 from snowflake.snowpark import Session
+session = Session.builder.config("connection_name", "pp28980.ap-southeast-3.aws").getOrCreate()
 #import snowflake.snowpark.types as T
 #import snowflake.snowpark.functions as F
 
