@@ -1,5 +1,5 @@
 # Can override the default connection name with an environment variable as follows
-#export SNOWFLAKE_DEFAULT_CONNECTION_NAME="pp28980.ap-southeast-3.aws"
+#export SNOWFLAKE_DEFAULT_CONNECTION_NAME = "pp28980.ap-southeast-3.aws"
 
 [default]
 account = "pp28980.ap-southeast-3.aws"

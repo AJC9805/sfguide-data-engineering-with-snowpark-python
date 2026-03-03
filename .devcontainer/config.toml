@@ -5,3 +5,12 @@
 #export SNOWFLAKE_CONNECTIONS_DEFAULT_PASSWORD=""
 
 default_connection_name = "default"
+
+[connections.default]
+account = "pp28980.ap-southeast-3.aws"
+user = "Pokpok"
+password = "Ac!0p0kp0k9805"
+role = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database = "HOL_DB"
+schema = "ANALYTICS"

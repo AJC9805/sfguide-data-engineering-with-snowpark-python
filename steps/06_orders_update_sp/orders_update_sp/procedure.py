@@ -16,7 +16,7 @@ import snowflake.snowpark.functions as F
 def table_exists(session, schema='', name=''):
     exists = session.sql("SELECT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(schema, name)).collect()[0]['TABLE_EXISTS']
     return exists
-
+### -> Mengecek apakah table ORDERS telah ada sebelumnya dengan mengecek dari daftar INFORMATION SCHEMA, jika tidak ada maka akan mengeluarkan pesan FALSE
 def create_orders_table(session):
     _ = session.sql("CREATE TABLE HARMONIZED.ORDERS LIKE HARMONIZED.POS_FLATTENED_V").collect()
     _ = session.sql("ALTER TABLE HARMONIZED.ORDERS ADD COLUMN META_UPDATED_AT TIMESTAMP").collect()
