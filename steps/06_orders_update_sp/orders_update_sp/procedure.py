@@ -44,7 +44,7 @@ def merge_order_updates(session):
     ### -> Jika tidak ada maka akan langsung di insert ke dalam list
 
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XSMALL').collect()
-### -> Ini untuk resize waregiyse HOL_WH ke XSMALL lagi untuk hemat resource
+### -> Ini untuk resize warehouse HOL_WH ke XSMALL lagi untuk hemat resource
 
 def main(session: Session) -> str:
     # Create the ORDERS table and ORDERS_STREAM stream if they don't exist
