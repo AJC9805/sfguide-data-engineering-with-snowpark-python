@@ -35,13 +35,18 @@ def create_daily_city_metrics_table(session):
                         .na.drop() \
                         .write.mode('overwrite').save_as_table('ANALYTICS.DAILY_CITY_METRICS')
     dcm = session.table('ANALYTICS.DAILY_CITY_METRICS')
-    ### -> 
+    ### -> Membuat DataFrame kosong dengan skema yang telah didefinisikan, lalu data none dihapus
+    #### -> kemudian menyimpannya sebagai table ANALYTICS.DAILY_CITY_METRICS. 
+    #### -> Jika table sudah ada, maka akan di-overwrite dengan struktur baru.
 
 def merge_daily_city_metrics(session):
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XLARGE WAIT_FOR_COMPLETION = TRUE').collect()
+### -> Resize warehouse HOL_WH menjadi XLARGE agar resourcenya cukup untuk komputasi yang berat
 
     print("{} records in stream".format(session.table('HARMONIZED.ORDERS_STREAM').count()))
+    ### -> Mengecek jumlah record yang ada di stream ORDERS_STREAM untuk memastikan data sudah masuk ke stream sebelum diproses.
     orders_stream_dates = session.table('HARMONIZED.ORDERS_STREAM').select(F.col("ORDER_TS_DATE").alias("DATE")).distinct()
+    ### -> Mengambil tanggal unik dari stream ORDERS_STREAM untuk digunakan dalam proses join dengan data cuaca nanti.
     orders_stream_dates.limit(5).show()
 
     orders = session.table("HARMONIZED.ORDERS_STREAM").group_by(F.col('ORDER_TS_DATE'), F.col('PRIMARY_CITY'), F.col('COUNTRY')) \
@@ -49,14 +54,21 @@ def merge_daily_city_metrics(session):
                                         .with_column("DAILY_SALES", F.call_builtin("ZEROIFNULL", F.col("price_nulls"))) \
                                         .select(F.col('ORDER_TS_DATE').alias("DATE"), F.col("PRIMARY_CITY").alias("CITY_NAME"), \
                                         F.col("COUNTRY").alias("COUNTRY_DESC"), F.col("DAILY_SALES"))
+### -> Mengelompokkan data dari ORDERS_STREAM berdasarkan tanggal, kota, dan negara, lalu menghitung total penjualan harian (DAILY_SALES) dengan menjumlahkan kolom PRICE.
+### -> Fungsi ZEROIFNULL digunakan untuk mengubah nilai null menjadi 0, sehingga jika tidak ada penjualan pada suatu tanggal dan kota tertentu, DAILY_SALES akan menjadi 0 daripada null.
+### -> Hasilnya adalah DataFrame dengan kolom DATE, CITY_NAME, COUNTRY_DESC, dan DAILY_SALES yang akan digunakan untuk digabungkan dengan data cuaca.
 #    orders.limit(5).show()
 
     weather_pc = session.table("FROSTBYTE_WEATHERSOURCE.ONPOINT_ID.POSTAL_CODES")
-    countries = session.table("RAW_POS.COUNTRY")
-    weather = session.table("FROSTBYTE_WEATHERSOURCE.ONPOINT_ID.HISTORY_DAY")
-    weather = weather.join(weather_pc, (weather['POSTAL_CODE'] == weather_pc['POSTAL_CODE']) & (weather['COUNTRY'] == weather_pc['COUNTRY']), rsuffix='_pc')
+    ### -> mengakses data postal codes yang ada di FROSTBYTE_WEATHERSOUCE.ONPOINT_ID.POSTAL_CODES untuk digunakan sebagai referensi dalam menggabungkan data cuaca dengan data penjualan berdasarkan lokasi geografis (kota dan negara).
+    countries = session.table("RAW_POS.COUNTRY") ### -> akses data Country untuk diambil datanya sebagai referensi negara yang ada di data penjualan.
+    weather = session.table("FROSTBYTE_WEATHERSOURCE.ONPOINT_ID.HISTORY_DAY") ### -> mengakses data cuaca harian
+    weather = weather.join(weather_pc, (weather['POSTAL_CODE'] == weather_pc['POSTAL_CODE']) & (weather['COUNTRY'] == weather_pc['COUNTRY']), rsuffix='_pc') 
+    ### -> menggabungkan data cuaca dengan data postal codes untuk mendapatkan informasi kota yang lebih spesifik dalam data cuaca.
     weather = weather.join(countries, (weather['COUNTRY'] == countries['ISO_COUNTRY']) & (weather['CITY_NAME'] == countries['CITY']), rsuffix='_c')
+    ### -> menggabungkan data cuaca dengan data country untuk mendapatkan informasi negara yang lebih lengkap dalam data cuaca.
     weather = weather.join(orders_stream_dates, weather['DATE_VALID_STD'] == orders_stream_dates['DATE'])
+    ### -> menggabungkan data cuaca dengan tanggal unik dari stream ORDERS_STREAM untuk memastikan hanya data cuaca yang relevan dengan tanggal penjualan yang sedang diproses yang akan digunakan dalam perhitungan metrik harian kota.
 
     weather_agg = weather.group_by(F.col('DATE_VALID_STD'), F.col('CITY_NAME'), F.col('COUNTRY_C')) \
                         .agg( \
@@ -73,6 +85,7 @@ def merge_daily_city_metrics(session):
                             F.round(F.col("AVG_PRECIPITATION_MM"), 2).alias("AVG_PRECIPITATION_MILLIMETERS"), \
                             F.col("MAX_WIND_SPEED_100M_MPH")
                             )
+### -> Proses agregasi data cuaca
 #    weather_agg.limit(5).show()
 
     daily_city_metrics_stg = orders.join(weather_agg, (orders['DATE'] == weather_agg['DATE']) & (orders['CITY_NAME'] == weather_agg['CITY_NAME']) & (orders['COUNTRY_DESC'] == weather_agg['COUNTRY_DESC']), \
@@ -81,17 +94,27 @@ def merge_daily_city_metrics(session):
                         "AVG_TEMPERATURE_FAHRENHEIT", "AVG_TEMPERATURE_CELSIUS", \
                         "AVG_PRECIPITATION_INCHES", "AVG_PRECIPITATION_MILLIMETERS", \
                         "MAX_WIND_SPEED_100M_MPH")
+### -> ### Menggabungkan data penjualan harian dengan data cuaca yang telah diagregasi berdasarkan tanggal, kota, dan negara 
+### untuk menghasilkan DataFrame metrik harian kota yang lengkap dengan informasi penjualan dan kondisi cuaca.
 #    daily_city_metrics_stg.limit(5).show()
 
     cols_to_update = {c: daily_city_metrics_stg[c] for c in daily_city_metrics_stg.schema.names}
+    ### -> membuat dictionary yang berisi kolom - kolom yang akan diperbarui berdasarkan data pada daily_city_metrics_stg.
     metadata_col_to_update = {"META_UPDATED_AT": F.current_timestamp()}
+    ### -> membuat kolom metadata dengan nilai waktu saat ini untuk mencatat kapan data terakhir diperbarui.
     updates = {**cols_to_update, **metadata_col_to_update}
+    ### -> menggabungkan cols_to_update dan metadata_col_to_update menjadi 1 dictionary.
+    ### note: ** fungsinya untuk unpacking dictionary dari masing masing dictionary.
 
     dcm = session.table('ANALYTICS.DAILY_CITY_METRICS')
     dcm.merge(daily_city_metrics_stg, (dcm['DATE'] == daily_city_metrics_stg['DATE']) & (dcm['CITY_NAME'] == daily_city_metrics_stg['CITY_NAME']) & (dcm['COUNTRY_DESC'] == daily_city_metrics_stg['COUNTRY_DESC']), \
                         [F.when_matched().update(updates), F.when_not_matched().insert(updates)])
+### -> Melakukan operasi merge ke dalam table ANALYTICS.DAILY_CITY_METRICS dengan mencocokkan data berdasarkan tanggal, kota, dan negara.
+### -> Jika data sudah ada (matched), maka data tersebut akan diperbarui dengan nilai baru dari daily_city_metrics_stg dan metadata update time.
+### -> Jika data tidak ada (not matched), maka data baru akan diinsert ke dalam table dengan nilai dari daily_city_metrics_stg dan metadata update time.
 
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XSMALL').collect()
+    ### -> Resize warehouse HOL_WH kembali ke XSMALL untuk menghemat resource setelah proses merge selesai.
 
 def main(session: Session) -> str:
     # Create the DAILY_CITY_METRICS table if it doesn't exist
