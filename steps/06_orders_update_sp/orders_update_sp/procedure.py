@@ -20,13 +20,14 @@ def table_exists(session, schema='', name=''):
 def create_orders_table(session):
     _ = session.sql("CREATE TABLE HARMONIZED.ORDERS LIKE HARMONIZED.POS_FLATTENED_V").collect()
     _ = session.sql("ALTER TABLE HARMONIZED.ORDERS ADD COLUMN META_UPDATED_AT TIMESTAMP").collect()
-
+### -> Membuat table ORDERS pada schema HARMONIZED yang tablenya seperti table POS_FLATTENED_V
+### -> Menambahkan column baru pada table ORDER yang bernama META_UPDATED_AT TIMESTAMP
 def create_orders_stream(session):
     _ = session.sql("CREATE STREAM HARMONIZED.ORDERS_STREAM ON TABLE HARMONIZED.ORDERS").collect()
-
+### -> Membuat fungsi Stream untuk memonitoring update data yang ada pada table ORDERS 
 def merge_order_updates(session):
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XLARGE WAIT_FOR_COMPLETION = TRUE').collect()
-
+    ### -> Resize warehouse HOL_WH ke XLARGE
     source = session.table('HARMONIZED.POS_FLATTENED_V_STREAM')
     target = session.table('HARMONIZED.ORDERS')
 
@@ -34,22 +35,26 @@ def merge_order_updates(session):
     cols_to_update = {c: source[c] for c in source.schema.names if "METADATA" not in c}
     metadata_col_to_update = {"META_UPDATED_AT": F.current_timestamp()}
     updates = {**cols_to_update, **metadata_col_to_update}
+    ### -> Setiap data yang masuk akan diberi label metadata seperti waktu UPDATE nya kapan sebagai penanda
 
     # merge into DIM_CUSTOMER
     target.merge(source, target['ORDER_DETAIL_ID'] == source['ORDER_DETAIL_ID'], \
                         [F.when_matched().update(updates), F.when_not_matched().insert(updates)])
+    ### -> ORDER ID akan dibandingkan, apabila sudah ada ORDER ID yang sama maka ORDER ID order yang lama akan diupdate,
+    ### -> Jika tidak ada maka akan langsung di insert ke dalam list
 
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XSMALL').collect()
+### -> Ini untuk resize waregiyse HOL_WH ke XSMALL lagi untuk hemat resource
 
 def main(session: Session) -> str:
     # Create the ORDERS table and ORDERS_STREAM stream if they don't exist
     if not table_exists(session, schema='HARMONIZED', name='ORDERS'):
-        create_orders_table(session)
-        create_orders_stream(session)
+        create_orders_table(session)  ## -> Mengecek table ORDERS, jika tidak ada maka akan dibuat table ORDERS
+        create_orders_stream(session) ## -> Membuat stream untuk memonitoring update data yang ada pada table ORDERS 
 
     # Process data incrementally
-    merge_order_updates(session)
-#    session.table('HARMONIZED.ORDERS').limit(5).show()
+    merge_order_updates(session) ## -> copy data dr source ke target, bandingin ORDER ID, dan beri label metadata
+  #  session.table('HARMONIZED.ORDERS').limit(5).show()
 
     return f"Successfully processed ORDERS"
 

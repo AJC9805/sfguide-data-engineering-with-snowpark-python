@@ -14,6 +14,7 @@ import snowflake.snowpark.functions as F
 def table_exists(session, schema='', name=''):
     exists = session.sql("SELECT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(schema, name)).collect()[0]['TABLE_EXISTS']
     return exists
+### -> Mengecek apakah table DAILY_CITY_METRICS telah ada sebelumnya dengan mengecek dari daftar INFORMATION SCHEMA, jika tidak ada maka akan mengeluarkan pesan FALSE
 
 def create_daily_city_metrics_table(session):
     SHARED_COLUMNS= [T.StructField("DATE", T.DateType()),
@@ -26,14 +27,15 @@ def create_daily_city_metrics_table(session):
                                         T.StructField("AVG_PRECIPITATION_MILLIMETERS", T.DecimalType()),
                                         T.StructField("MAX_WIND_SPEED_100M_MPH", T.DecimalType()),
                                     ]
+    ### -> Mendefine struktur kolom yang akan digunakan di table DAILY_CITY_METRICS, dengan tipe data yang sesuai untuk setiap kolomnya. 
     DAILY_CITY_METRICS_COLUMNS = [*SHARED_COLUMNS, T.StructField("META_UPDATED_AT", T.TimestampType())]
     DAILY_CITY_METRICS_SCHEMA = T.StructType(DAILY_CITY_METRICS_COLUMNS)
-
+    ### -> Kolom META_UPDATED_AT akan ditambahkan untuk menyimpan informasi kapan terakhir kali data diperbarui.
     dcm = session.create_dataframe([[None]*len(DAILY_CITY_METRICS_SCHEMA.names)], schema=DAILY_CITY_METRICS_SCHEMA) \
                         .na.drop() \
                         .write.mode('overwrite').save_as_table('ANALYTICS.DAILY_CITY_METRICS')
     dcm = session.table('ANALYTICS.DAILY_CITY_METRICS')
-
+    ### -> 
 
 def merge_daily_city_metrics(session):
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XLARGE WAIT_FOR_COMPLETION = TRUE').collect()
